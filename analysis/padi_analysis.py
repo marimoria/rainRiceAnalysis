@@ -1,7 +1,7 @@
 """
 02_padi_analysis.py
 ===================
-PADI (Produktivitas) — Full Descriptive Analysis
+PADI (Produktivitas) — Full Descriptive Analysis (Robust/Median Focus)
 -------------------------------------------------
 PRIMARY outputs (for journal):
   1.  Descriptive statistics table         → padi_1_descriptive_stats.csv
@@ -13,8 +13,9 @@ PRIMARY outputs (for journal):
 BACKUP outputs (additional charts):
   B1. Histogram + KDE overlay             → padi_B1_histogram_kde.png
   B2. Frequency distribution (binned)     → padi_B2_freq_distribution.png
-  B3. Line plot — all 38 wilayah         → padi_B3_lineplot_all_wilayah.png
+  B3. Line plot — all 38 wilayah          → padi_B3_lineplot_all_wilayah.png
   B4. Boxplot per bulan                   → padi_B4_boxplot_per_bulan.png
+  B5. Boxplot keseluruhan                 → padi_B5_boxplot_overall.png
 
 All outputs → __output__/padi/
 """
@@ -24,6 +25,7 @@ import warnings
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import numpy as np
 import pandas as pd
 from scipy.stats import gaussian_kde
@@ -70,10 +72,10 @@ df   = df_raw.dropna(subset=[COL_PADI]).copy()
 
 # For CV/statistics, exclude zero-productivity months (no planting)
 df_nz   = df[df[COL_PADI] > 0].copy()
-padi_nz = df_nz[COL_PADI].to_numpy(dtype=float)   # numpy — no Pylance complaints
+padi_nz = df_nz[COL_PADI].astype(float).to_numpy()   
 
 print("=" * 65)
-print("  02_PADI_ANALYSIS.PY")
+print("  02_PADI_ANALYSIS.PY (ROBUST FOCUS)")
 print("=" * 65)
 print(f"  Total rows          : {len(df)}")
 print(f"  Rows produktivitas>0: {len(df_nz)}  (used for stats & CV)")
@@ -97,7 +99,7 @@ cv_all   = std_p / mean_p * 100
 
 stats_dict = {
     "Mean (Rata-rata)"          : mean_p,
-    "Median"                    : median_p,
+    "Median (Nilai Tengah)"     : median_p,
     "Simpangan Baku (Std Dev)"  : std_p,
     "Minimum"                   : min_p,
     "Maximum"                   : max_p,
@@ -127,10 +129,11 @@ print(f"   → Saved: {OUT_DIR}/padi_1_descriptive_stats.csv\n")
 fig, ax = plt.subplots(figsize=(9, 5))
 ax.hist(padi_nz, bins=25, color=ACCENT, edgecolor="white",
         linewidth=0.7, alpha=0.88)
-ax.axvline(mean_p,   color="#d63031", linewidth=2,
-           linestyle="--", label=f"Mean: {mean_p:.2f}")
-ax.axvline(median_p, color="#0984e3", linewidth=2,
+ax.axvline(median_p, color="#0984e3", linewidth=2.5,
            linestyle="-.", label=f"Median: {median_p:.2f}")
+ax.axvline(mean_p,   color="#d63031", linewidth=1.5,
+           linestyle="--", label=f"Mean: {mean_p:.2f}")
+
 ax.set_title(
     "Distribusi Frekuensi Produktivitas Padi\n(observasi produktivitas > 0)",
     fontsize=13, fontweight="bold", pad=12,
@@ -167,9 +170,6 @@ print(f"   Lower fence : {lower_fence:.4f}  (Q1 − 1.5×IQR)")
 print(f"   Upper fence : {upper_fence:.4f}  (Q3 + 1.5×IQR)")
 print(f"   Outliers    : {len(outliers)} observations")
 print()
-if not outliers.empty:
-    print(outliers[["wilayah", "bulan_nama", COL_PADI]].to_string(index=False))
-print()
 
 outliers.to_csv(f"{OUT_DIR}/padi_3_iqr_outliers.csv", index=False)
 print(f"   → Saved: {OUT_DIR}/padi_3_iqr_outliers.csv\n")
@@ -183,7 +183,7 @@ cv_per_wilayah = (
     .agg(
         n_obs="count",
         mean_prod="mean",
-        std_prod=lambda x: float(np.std(x.to_numpy(dtype=float), ddof=1)),
+        std_prod="std", # Clean string alias for standard deviation
     )
     .reset_index()
 )
@@ -201,10 +201,6 @@ cv_per_wilayah["Stabilitas"] = cv_per_wilayah["CV (%)"].apply(
 print("── 4. CV per Wilayah ──")
 print(f"   Median CV (threshold) : {median_cv:.2f}%")
 print()
-print(cv_per_wilayah[
-    ["wilayah", "mean_prod", "std_prod", "CV (%)", "Stabilitas"]
-].to_string(index=False))
-print()
 
 cv_per_wilayah.to_csv(f"{OUT_DIR}/padi_4_cv_per_wilayah.csv", index=False)
 print(f"   → Saved: {OUT_DIR}/padi_4_cv_per_wilayah.csv")
@@ -214,16 +210,20 @@ colors_cv = [
     "#d63031" if s == "Tidak Stabil" else ACCENT
     for s in cv_per_wilayah["Stabilitas"]
 ]
-cv_vals = cv_per_wilayah["CV (%)"].to_numpy(dtype=float)
+cv_vals = cv_per_wilayah["CV (%)"].astype(float).to_numpy()
 
 fig, ax = plt.subplots(figsize=(14, 6))
 bars = ax.barh(cv_per_wilayah["wilayah"].tolist(), cv_vals,
                color=colors_cv, edgecolor="white", linewidth=0.5, height=0.7)
 ax.axvline(median_cv, color="#2d3436", linewidth=1.8,
            linestyle="--", label=f"Median CV: {median_cv:.1f}%")
+
 for bar, val in zip(bars, cv_vals):
-    ax.text(val + 0.3, bar.get_y() + bar.get_height() / 2,
-            f"{val:.1f}%", va="center", fontsize=7.5)
+    # Wrapped coordinates in explicit float() casts for strict type checkers
+    x_pos = float(val) + 0.3
+    y_pos = float(bar.get_y() + bar.get_height() / 2)
+    ax.text(x_pos, y_pos, f"{val:.1f}%", va="center", fontsize=7.5)
+
 legend_patches = [
     mpatches.Patch(color=ACCENT,    label="Stabil (CV ≤ median)"),
     mpatches.Patch(color="#d63031", label="Tidak Stabil (CV > median)"),
@@ -251,7 +251,7 @@ wilayah_order = (
     .sort_values(ascending=False).index.tolist()
 )
 groups_w = [
-    df_nz.loc[df_nz["wilayah"] == w, COL_PADI].to_numpy(dtype=float)
+    df_nz.loc[df_nz["wilayah"] == w, COL_PADI].astype(float).to_numpy() # type: ignore
     for w in wilayah_order
 ]
 
@@ -299,10 +299,11 @@ ax.hist(padi_nz, bins=25, density=True,
 kde   = gaussian_kde(padi_nz)
 x_kde = np.linspace(padi_nz.min(), padi_nz.max(), 300)
 ax.plot(x_kde, kde(x_kde), color="#2d3436", linewidth=2.2, label="KDE")
-ax.axvline(mean_p,   color="#d63031", linewidth=1.8,
-           linestyle="--", label=f"Mean: {mean_p:.2f}")
-ax.axvline(median_p, color="#0984e3", linewidth=1.8,
+ax.axvline(median_p, color="#0984e3", linewidth=2.5,
            linestyle="-.", label=f"Median: {median_p:.2f}")
+ax.axvline(mean_p,   color="#d63031", linewidth=1.5,
+           linestyle="--", label=f"Mean: {mean_p:.2f}")
+
 ax.set_title("Histogram + KDE Produktivitas Padi",
              fontsize=13, fontweight="bold", pad=12)
 ax.set_xlabel("Produktivitas (ton/ha)", fontsize=11)
@@ -316,7 +317,7 @@ print(f"   → Saved: {OUT_DIR}/padi_B1_histogram_kde.png")
 # ── B2. FREQUENCY DISTRIBUTION (equal-width bins) ─────────────────────────────
 pmin         = float(np.floor(padi_nz.min() * 2) / 2)
 pmax         = float(np.ceil(padi_nz.max() * 2) / 2)
-bin_edges_p  = list(np.arange(pmin, pmax + 0.5, 0.5))   # list → valid bins arg
+bin_edges_p  = list(np.arange(pmin, pmax + 0.5, 0.5))   
 bin_labels_p = [f"{b:.1f}–{b+0.5:.1f}" for b in bin_edges_p[:-1]]
 fd_padi = pd.cut(
     df_nz[COL_PADI],
@@ -324,16 +325,19 @@ fd_padi = pd.cut(
     labels=bin_labels_p,
     right=False,
 ).value_counts().reindex(bin_labels_p, fill_value=0)
-fd_arr = fd_padi.to_numpy(dtype=int)
+fd_arr = fd_padi.astype(int).to_numpy()
 
 fig, ax = plt.subplots(figsize=(14, 5))
 bars = ax.bar(bin_labels_p, fd_arr,
               color=ACCENT, edgecolor="white", linewidth=0.6, width=0.8, alpha=0.88)
+
 for bar, cnt in zip(bars, fd_arr):
     if cnt > 0:
-        ax.text(bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.3,
-                str(cnt), ha="center", va="bottom", fontsize=7.5)
+        # Wrapped coordinates in explicit float() casts
+        x_pos = float(bar.get_x() + bar.get_width() / 2)
+        y_pos = float(bar.get_height() + 0.3)
+        ax.text(x_pos, y_pos, str(cnt), ha="center", va="bottom", fontsize=7.5)
+
 ax.set_title("Distribusi Frekuensi Produktivitas Padi (Interval 0.5 ton/ha)",
              fontsize=13, fontweight="bold", pad=12)
 ax.set_xlabel("Kelas Interval (ton/ha)", fontsize=11)
@@ -344,36 +348,43 @@ plt.savefig(f"{OUT_DIR}/padi_B2_freq_distribution.png", bbox_inches="tight")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/padi_B2_freq_distribution.png")
 
-# ── B3. LINE PLOT — all 38 wilayah overlaid ───────────────────────────────────
-pivot_p        = df.pivot_table(index=COL_BULAN, columns="wilayah",
-                                 values=COL_PADI, aggfunc="mean")
-overall_mean_p = pivot_p.mean(axis=1)
+# ── B3. LINE PLOT — all 38 wilayah overlaid (MEDIAN AGGREGATE) ─────────────────
+pivot_p          = df_nz.pivot_table(index=COL_BULAN, columns="wilayah", values=COL_PADI, aggfunc="median")
+overall_median_p = pivot_p.median(axis=1)
 
-fig, ax = plt.subplots(figsize=(12, 6))
-for col in pivot_p.columns:
-    ax.plot(pivot_p.index, pivot_p[col].to_numpy(dtype=float),
-            linewidth=0.9, alpha=0.40, color=ACCENT)
-ax.plot(pivot_p.index, overall_mean_p.to_numpy(dtype=float),
-        color="black", linewidth=2.5, linestyle="--",
-        label="Rata-rata Seluruh Wilayah", zorder=5)
+fig, ax = plt.subplots(figsize=(14, 7))
+
+# Generate distinct colors for 38 regions
+cmap = cm.get_cmap("tab20")
+
+for i, col in enumerate(pivot_p.columns):
+    ax.plot(pivot_p.index, pivot_p[col].astype(float).to_numpy(),
+            linewidth=1.2, alpha=0.6, color=cmap(i % 20), label=col)
+    
+ax.plot(pivot_p.index, overall_median_p.astype(float).to_numpy(),
+        color="black", linewidth=3.5, linestyle="--",
+        label="MEDIAN SELURUH WILAYAH", zorder=5)
+
 ax.set_xticks(range(1, 13))
 ax.set_xticklabels(MONTH_LABELS, fontsize=10)
 ax.set_title(
-    "Produktivitas Padi Bulanan — 38 Wilayah Jawa Timur\n"
-    "(garis hitam putus-putus = rata-rata keseluruhan)",
+    "Produktivitas Padi Bulanan — 38 Wilayah Jawa Timur",
     fontsize=13, fontweight="bold", pad=12,
 )
 ax.set_xlabel("Bulan", fontsize=11)
 ax.set_ylabel("Produktivitas (ton/ha)", fontsize=11)
-ax.legend(fontsize=9)
-plt.tight_layout()
+
+# Put legend OUTSIDE the plot area
+ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', ncol=2, fontsize=7)
+plt.subplots_adjust(right=0.75) 
+
 plt.savefig(f"{OUT_DIR}/padi_B3_lineplot_all_wilayah.png", bbox_inches="tight")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/padi_B3_lineplot_all_wilayah.png")
 
 # ── B4. BOXPLOT PER BULAN ─────────────────────────────────────────────────────
 groups_b = [
-    df_nz.loc[df_nz[COL_BULAN] == m, COL_PADI].dropna().to_numpy(dtype=float)
+    df_nz.loc[df_nz[COL_BULAN] == m, COL_PADI].dropna().astype(float).to_numpy()
     for m in range(1, 13)
 ]
 
@@ -405,6 +416,37 @@ plt.tight_layout()
 plt.savefig(f"{OUT_DIR}/padi_B4_boxplot_per_bulan.png", bbox_inches="tight")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/padi_B4_boxplot_per_bulan.png")
+
+
+# ── B5. BOXPLOT KESELURUHAN (Seluruh Dataset) ─────────────────────────────────
+fig, ax = plt.subplots(figsize=(6, 8))
+bp3 = ax.boxplot(
+    [padi_nz],
+    patch_artist=True,
+    notch=False,
+    widths=0.4,
+    medianprops=dict(color="#d63031", linewidth=2.5),
+    whiskerprops=dict(linewidth=1.2),
+    capprops=dict(linewidth=1.2),
+    flierprops=dict(marker="o", markersize=4,
+                    alpha=0.5, markerfacecolor="#636e72", markeredgewidth=0),
+)
+
+bp3["boxes"][0].set_facecolor(ACCENT)
+bp3["boxes"][0].set_alpha(0.85)
+
+ax.set_xticks([1])
+ax.set_xticklabels(["Seluruh Observasi\n(Jawa Timur, Semua Bulan)"], fontsize=11)
+ax.set_title(
+    "Distribusi Keseluruhan Produktivitas Padi",
+    fontsize=13, fontweight="bold", pad=12,
+)
+ax.set_ylabel("Produktivitas (ton/ha)", fontsize=11)
+
+plt.tight_layout()
+plt.savefig(f"{OUT_DIR}/padi_B5_boxplot_overall.png", bbox_inches="tight")
+plt.close()
+print(f"   → Saved: {OUT_DIR}/padi_B5_boxplot_overall.png")
 
 print()
 print("=" * 65)

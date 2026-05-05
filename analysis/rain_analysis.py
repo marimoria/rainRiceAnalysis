@@ -1,12 +1,12 @@
 """
 01_rain_analysis.py
 ===================
-RAIN (Curah Hujan) — Full Descriptive Analysis
+RAIN (Curah Hujan) — Full Descriptive Analysis (Robust/Median Focus)
 -----------------------------------------------
 PRIMARY outputs (for journal):
   1.  Descriptive statistics table        → rain_1_descriptive_stats.csv
   2.  BMKG category frequency bar chart   → rain_2_bmkg_frequency.png / .csv
-  3.  Monthly mean line plot (wet/dry)    → rain_3_monthly_mean_lineplot.png
+  3.  Monthly median line plot (wet/dry)  → rain_3_monthly_median_lineplot.png
   4.  IQR outlier identification table    → rain_4_iqr_outliers.csv
 
 BACKUP outputs (additional charts):
@@ -23,6 +23,7 @@ import os
 import warnings
 
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import numpy as np
 import pandas as pd
 
@@ -47,7 +48,10 @@ BMKG_XLABELS = ["Rendah\n(≤100 mm)", "Menengah\n(101–300 mm)",
                 "Tinggi\n(301–500 mm)", "Sangat Tinggi\n(>500 mm)"]
 BMKG_COLORS  = ["#74b9ff", "#0984e3", "#e17055", "#d63031"]
 
-ACCENT = "#0984e3"
+ACCENT = "#00b894" # Switched to a green accent for the robust median lines
+
+# Visual Capping limit to prevent blown-out axes from extreme outliers
+VISUAL_Y_MAX = 5000 
 
 # ── STYLE ─────────────────────────────────────────────────────────────────────
 plt.rcParams.update({
@@ -69,10 +73,10 @@ df_raw["wilayah"] = (
     + df_raw[COL_JENIS].map({0: "Kab.", 1: "Kota"})
 )
 df = df_raw.dropna(subset=[COL_CH]).copy()
-ch = df[COL_CH].to_numpy(dtype=float)          # numpy array — no Pylance complaints
+ch = df[COL_CH].to_numpy(dtype=float)
 
 print("=" * 65)
-print("  01_RAIN_ANALYSIS.PY")
+print("  01_RAIN_ANALYSIS.PY (ROBUST/MEDIAN FOCUS)")
 print("=" * 65)
 print(f"  Rows (after dropping NaN CH) : {len(df)}")
 print(f"  Unique wilayah               : {df['wilayah'].nunique()}")
@@ -94,7 +98,7 @@ iqr       = q3 - q1
 
 stats_dict = {
     "Mean (Rata-rata)"         : mean_ch,
-    "Median"                   : median_ch,
+    "Median (Nilai Tengah)"    : median_ch,
     "Simpangan Baku (Std Dev)" : std_ch,
     "Minimum"                  : min_ch,
     "Maximum"                  : max_ch,
@@ -162,28 +166,30 @@ print(f"   → Saved: {OUT_DIR}/rain_2_bmkg_frequency.png\n")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. MONTHLY MEAN LINE PLOT — seasonal wet/dry pattern
+# 3. MONTHLY MEDIAN LINE PLOT — outlier resistant trend
 # ═══════════════════════════════════════════════════════════════════════════════
-monthly_mean = df.groupby(COL_BULAN)[COL_CH].mean().reindex(range(1, 13))
-monthly_std  = df.groupby(COL_BULAN)[COL_CH].std().reindex(range(1, 13))
+# Using Median and IQR (Q1, Q3) instead of Mean and Std Dev for robust charting
+monthly_median = df.groupby(COL_BULAN)[COL_CH].median().reindex(range(1, 13))
+monthly_q1     = df.groupby(COL_BULAN)[COL_CH].quantile(0.25).reindex(range(1, 13))
+monthly_q3     = df.groupby(COL_BULAN)[COL_CH].quantile(0.75).reindex(range(1, 13))
 
-mm_arr  = monthly_mean.to_numpy(dtype=float)
-msd_arr = monthly_std.to_numpy(dtype=float)
+md_arr = monthly_median.to_numpy(dtype=float)
+q1_arr = monthly_q1.to_numpy(dtype=float)
+q3_arr = monthly_q3.to_numpy(dtype=float)
 
-print("── 3. Monthly Mean Curah Hujan ──")
-for m, mean_v, sd_v in zip(range(1, 13), mm_arr, msd_arr):
-    print(f"   {MONTH_LABELS[m-1]:<4}: {mean_v:>8.1f} mm  (±{sd_v:.1f})")
+print("── 3. Monthly Trend Curah Hujan (Robust) ──")
+for m, md_v, q1_v, q3_v in zip(range(1, 13), md_arr, q1_arr, q3_arr):
+    print(f"   {MONTH_LABELS[m-1]:<4}: Median={md_v:>6.1f} mm  (IQR: {q1_v:.1f} - {q3_v:.1f})")
 print()
 
 x = list(range(1, 13))
-lower_band = np.clip(mm_arr - msd_arr, 0, None)
-upper_band = mm_arr + msd_arr
 
 fig, ax = plt.subplots(figsize=(11, 5))
-ax.fill_between(x, lower_band, upper_band, alpha=0.13, color=ACCENT)
-ax.plot(x, mm_arr, marker="o", color=ACCENT,
-        linewidth=2.5, markersize=8, zorder=5, label="Rata-rata CH bulanan")
-for xi, yi in zip(x, mm_arr):
+ax.fill_between(x, q1_arr, q3_arr, alpha=0.15, color=ACCENT, label="Rentang Interkuartil (Q1 - Q3)")
+ax.plot(x, md_arr, marker="s", color=ACCENT,
+        linewidth=2.5, markersize=8, zorder=5, label="Median CH bulanan")
+
+for xi, yi in zip(x, md_arr):
     ax.annotate(f"{yi:.0f}", xy=(xi, yi), xytext=(0, 10),
                 textcoords="offset points", ha="center", fontsize=8.5, color="#2d3436")
 
@@ -193,17 +199,20 @@ ax.axvspan(0.5, 4.5,  alpha=0.05, color=ACCENT, label="Musim Hujan (est. Nov–A
 
 ax.set_xticks(x)
 ax.set_xticklabels(MONTH_LABELS, fontsize=10)
+
+ax.set_ylim(-50, max(q3_arr) * 1.5) # Scale to Q3 instead of raw maximum
+
 ax.set_title(
-    "Rata-rata Curah Hujan Bulanan — Seluruh Wilayah Jawa Timur\n(Pola Musim Hujan / Kemarau)",
+    "Tren Nilai Tengah (Median) Curah Hujan Bulanan — Seluruh Wilayah Jawa Timur\n(Resisten terhadap Outlier Ekstrem)",
     fontsize=13, fontweight="bold", pad=12,
 )
 ax.set_xlabel("Bulan", fontsize=11)
-ax.set_ylabel("Rata-rata Curah Hujan (mm)", fontsize=11)
+ax.set_ylabel("Curah Hujan (mm) - Median", fontsize=11)
 ax.legend(fontsize=9, loc="upper right")
 plt.tight_layout()
-plt.savefig(f"{OUT_DIR}/rain_3_monthly_mean_lineplot.png", bbox_inches="tight")
+plt.savefig(f"{OUT_DIR}/rain_3_monthly_median_lineplot.png", bbox_inches="tight")
 plt.close()
-print(f"   → Saved: {OUT_DIR}/rain_3_monthly_mean_lineplot.png\n")
+print(f"   → Saved: {OUT_DIR}/rain_3_monthly_median_lineplot.png\n")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -228,9 +237,6 @@ print(f"   Lower fence : {lower_fence:.2f} mm  (Q1 − 1.5×IQR)")
 print(f"   Upper fence : {upper_fence:.2f} mm  (Q3 + 1.5×IQR)")
 print(f"   Outliers    : {len(outliers)} observations")
 print()
-if not outliers.empty:
-    print(outliers[["wilayah", "bulan_nama", COL_CH]].to_string(index=False))
-print()
 
 outliers.to_csv(f"{OUT_DIR}/rain_4_iqr_outliers.csv", index=False)
 print(f"   → Saved: {OUT_DIR}/rain_4_iqr_outliers.csv\n")
@@ -242,17 +248,15 @@ print(f"   → Saved: {OUT_DIR}/rain_4_iqr_outliers.csv\n")
 print("── BACKUP CHARTS ──")
 
 # ── B1. HISTOGRAM ─────────────────────────────────────────────────────────────
-p99    = float(np.percentile(ch, 99))
-ch_clip = ch[ch <= p99]
-
+# Clip histogram bounds visually to keep it readable, but plot the real median
 fig, ax = plt.subplots(figsize=(9, 5))
-ax.hist(ch_clip, bins=35, color=ACCENT, edgecolor="white", linewidth=0.6, alpha=0.85)
-ax.axvline(mean_ch,   color="#d63031", linewidth=2,
-           linestyle="--", label=f"Mean: {mean_ch:.0f} mm")
-ax.axvline(median_ch, color="#00b894", linewidth=2,
-           linestyle="-.", label=f"Median: {median_ch:.0f} mm")
+ax.hist(ch, bins=40, range=(0, VISUAL_Y_MAX), color="#74b9ff", edgecolor="white", linewidth=0.6, alpha=0.85)
+
+ax.axvline(median_ch, color=ACCENT, linewidth=3, linestyle="-", label=f"Median: {median_ch:.0f} mm")
+ax.axvline(mean_ch, color="#d63031", linewidth=1.5, linestyle="--", alpha=0.6, label=f"Mean (Skewed): {mean_ch:.0f} mm")
+
 ax.set_title(
-    "Histogram Curah Hujan Bulanan\n(nilai >P99 dipotong untuk keterbacaan)",
+    f"Histogram Curah Hujan Bulanan\n(Nilai > {VISUAL_Y_MAX} mm disembunyikan dari chart)",
     fontsize=13, fontweight="bold", pad=12,
 )
 ax.set_xlabel("Curah Hujan (mm/bulan)", fontsize=11)
@@ -274,14 +278,14 @@ fd_series = pd.cut(
 fd_arr = fd_series.to_numpy(dtype=int)
 
 fig, ax = plt.subplots(figsize=(11, 5))
-bars = ax.bar(bin_labels_fd, fd_arr, color=ACCENT,
+bars = ax.bar(bin_labels_fd, fd_arr, color="#0984e3",
               edgecolor="white", linewidth=0.7, width=0.7, alpha=0.88)
 for bar, cnt in zip(bars, fd_arr):
     if cnt > 0:
         ax.text(bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + 0.5,
                 str(cnt), ha="center", va="bottom", fontsize=9)
-ax.set_title("Distribusi Frekuensi Curah Hujan per Kelas Interval",
+ax.set_title("Distribusi Frekuensi Curah Hujan per Kelas Interval (0 - 1000 mm)",
              fontsize=13, fontweight="bold", pad=12)
 ax.set_xlabel("Kelas Interval (mm/bulan)", fontsize=11)
 ax.set_ylabel("Frekuensi", fontsize=11)
@@ -291,37 +295,46 @@ plt.savefig(f"{OUT_DIR}/rain_B2_freq_distribution.png", bbox_inches="tight")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/rain_B2_freq_distribution.png")
 
-# ── B3. LINE PLOT — all 38 wilayah overlaid ───────────────────────────────────
-pivot        = df.pivot_table(index=COL_BULAN, columns="wilayah",
-                               values=COL_CH, aggfunc="mean")
-overall_mean = pivot.mean(axis=1)
+# ── B3. LINE PLOT — all 38 wilayah overlaid (MEDIAN AGGREGATE) ─────────────────
+# Pivot using median so region-level monthly data is resistant to daily typos
+pivot          = df.pivot_table(index=COL_BULAN, columns="wilayah", values=COL_CH, aggfunc="median")
+overall_median = pivot.median(axis=1) # Median across all 38 regions
 
-fig, ax = plt.subplots(figsize=(12, 6))
-for col in pivot.columns:
+fig, ax = plt.subplots(figsize=(14, 7))
+cmap = cm.get_cmap("tab20", len(pivot.columns))
+
+for i, col in enumerate(pivot.columns):
     ax.plot(pivot.index, pivot[col].to_numpy(dtype=float),
-            linewidth=0.9, alpha=0.45, color=ACCENT)
-ax.plot(pivot.index, overall_mean.to_numpy(dtype=float),
-        color="black", linewidth=2.5, linestyle="--",
-        label="Rata-rata Seluruh Wilayah", zorder=5)
+            linewidth=1.2, alpha=0.6, color=cmap(i), label=col)
+    
+ax.plot(pivot.index, overall_median.to_numpy(dtype=float),
+        color="black", linewidth=3.5, linestyle="--",
+        label="MEDIAN SELURUH WILAYAH", zorder=5)
+
 ax.set_xticks(range(1, 13))
 ax.set_xticklabels(MONTH_LABELS, fontsize=10)
+
+# Clamp axis to be readable, preventing outliers from squashing the lines
+ax.set_ylim(-50, VISUAL_Y_MAX)
+
 ax.set_title(
-    "Curah Hujan Bulanan — 38 Wilayah Jawa Timur\n"
-    "(garis hitam putus-putus = rata-rata keseluruhan)",
+    f"Curah Hujan Bulanan — 38 Wilayah Jawa Timur\n(Y-Axis Dibatasi Max {VISUAL_Y_MAX} mm)",
     fontsize=13, fontweight="bold", pad=12,
 )
 ax.set_xlabel("Bulan", fontsize=11)
 ax.set_ylabel("Curah Hujan (mm/bulan)", fontsize=11)
-ax.legend(fontsize=9)
-plt.tight_layout()
+
+ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', ncol=2, fontsize=7)
+plt.subplots_adjust(right=0.75) 
+
 plt.savefig(f"{OUT_DIR}/rain_B3_lineplot_all_wilayah.png", bbox_inches="tight")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/rain_B3_lineplot_all_wilayah.png")
 
 # ── B4. BOXPLOT PER BULAN ─────────────────────────────────────────────────────
-df_b   = df[df[COL_CH] <= float(np.percentile(ch, 99))].copy()
+# Pass full groups (including outliers), but cap the axis so the boxes are visible
 groups = [
-    df_b.loc[df_b[COL_BULAN] == m, COL_CH].dropna().to_numpy(dtype=float)
+    df.loc[df[COL_BULAN] == m, COL_CH].dropna().to_numpy(dtype=float)
     for m in range(1, 13)
 ]
 
@@ -343,9 +356,11 @@ for i, patch in enumerate(bp["boxes"]):
 
 ax.set_xticks(range(1, 13))
 ax.set_xticklabels(MONTH_LABELS, fontsize=10)
+
+ax.set_ylim(-50, VISUAL_Y_MAX) # Constrain Axis
+
 ax.set_title(
-    "Boxplot Curah Hujan per Bulan — 38 Wilayah Jawa Timur\n"
-    "(nilai >P99 dipotong untuk keterbacaan)",
+    f"Boxplot Curah Hujan per Bulan — 38 Wilayah Jawa Timur\n(Y-Axis Dibatasi Max {VISUAL_Y_MAX} mm)",
     fontsize=13, fontweight="bold", pad=12,
 )
 ax.set_xlabel("Bulan", fontsize=11)
@@ -354,7 +369,6 @@ plt.tight_layout()
 plt.savefig(f"{OUT_DIR}/rain_B4_boxplot_per_bulan.png", bbox_inches="tight")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/rain_B4_boxplot_per_bulan.png")
-
 
 # ── B5. BOXPLOT KESELURUHAN (Seluruh Dataset) ─────────────────────────────────
 fig, ax = plt.subplots(figsize=(6, 8))
@@ -370,13 +384,16 @@ bp = ax.boxplot(
                     alpha=0.5, markerfacecolor="#636e72", markeredgewidth=0),
 )
 
-bp["boxes"][0].set_facecolor(ACCENT)
+bp["boxes"][0].set_facecolor("#74b9ff")
 bp["boxes"][0].set_alpha(0.85)
 
 ax.set_xticks([1])
 ax.set_xticklabels(["Seluruh Observasi\n(Jawa Timur, Semua Bulan)"], fontsize=11)
+
+ax.set_ylim(-50, VISUAL_Y_MAX) # Constrain Axis
+
 ax.set_title(
-    "Distribusi Keseluruhan Curah Hujan",
+    f"Distribusi Keseluruhan Curah Hujan\n(Y-Axis Dibatasi Max {VISUAL_Y_MAX} mm)",
     fontsize=13, fontweight="bold", pad=12,
 )
 ax.set_ylabel("Curah Hujan (mm/bulan)", fontsize=11)
