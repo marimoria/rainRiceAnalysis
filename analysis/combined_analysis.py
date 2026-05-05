@@ -7,7 +7,7 @@ PRIMARY outputs (for journal):
   1.  LOWESS scatter plot                  → combined_1_lowess_scatter.png
   2.  Spearman correlation overall         → combined_2_spearman_overall.csv / .png
   3.  Spearman correlation per wilayah     → combined_3_spearman_per_wilayah.csv / .png
-  4.  2×2 Resilience classification table → combined_4_resilience_table.csv / .png
+  4.  2x2 Resilience classification table → combined_4_resilience_table.csv / .png
                                             combined_4_resilience_matrix.png
                                             combined_4_resilience_wilayah_table.png
 
@@ -71,18 +71,16 @@ df_raw["wilayah"] = (
 
 # Drop rows missing either variable
 df = df_raw.dropna(subset=[COL_CH, COL_PADI]).copy()
-# For correlation: keep only rows where both variables are meaningful
-df_pair = df[df[COL_PADI] > 0].copy()
+# Keep all rows where both variables are present (including produktivitas = 0)
+df_pair = df.copy()
 
-# Clip extreme CH outliers (>P99) to keep LOWESS / scatter readable
-p99_ch   = float(df_pair[COL_CH].quantile(0.99))
-df_clean = df_pair[df_pair[COL_CH] <= p99_ch].copy()
+# No outlier clipping — all valid observations are kept as-is
+df_clean = df_pair.copy()
 
 print("=" * 65)
 print("  03_COMBINED_ANALYSIS.PY")
 print("=" * 65)
 print(f"  Rows (both vars present, produktivitas>0) : {len(df_pair)}")
-print(f"  Rows after clipping CH >P99               : {len(df_clean)}")
 print(f"  Unique wilayah                            : {df_pair['wilayah'].nunique()}")
 print()
 
@@ -97,7 +95,7 @@ y_raw = df_clean[COL_PADI].to_numpy(dtype=float)
 lw = lowess(y_raw, x_raw, frac=0.35, it=3, return_sorted=True)
 
 print("── 1. LOWESS Scatter Plot ──")
-print(f"   LOWESS frac = 0.35  |  n = {len(x_raw)} observations")
+print(f"   LOWESS frac = 0.35  |  n = {len(x_raw)} observations (all valid data)")
 print()
 
 fig, ax = plt.subplots(figsize=(10, 6))
@@ -124,6 +122,7 @@ print(f"   → Saved: {OUT_DIR}/combined_1_lowess_scatter.png\n")
 # ═══════════════════════════════════════════════════════════════════════════════
 ch_pair   = df_pair[COL_CH].to_numpy(dtype=float)
 padi_pair = df_pair[COL_PADI].to_numpy(dtype=float)
+
 rho_result = stats.spearmanr(ch_pair, padi_pair)
 rho_all    = float(rho_result.statistic)   # type: ignore[attr-defined]
 p_all      = float(rho_result.pvalue)      # type: ignore[attr-defined]
@@ -143,7 +142,7 @@ else:
 
 direction = "Positif" if rho_all > 0 else "Negatif"
 sig_label = "Signifikan (p<0.05)" if p_all < 0.05 else "Tidak Signifikan"
-n_pairs   = len(df_pair)
+n_pairs   = len(df_pair)   # all valid rows, no clipping
 
 print("── 2. Spearman Correlation — Overall ──")
 print(f"   n pairs      : {n_pairs}")
@@ -169,7 +168,7 @@ print(f"   → Saved: {OUT_DIR}/combined_2_spearman_overall.csv")
 fig, ax = plt.subplots(figsize=(7, 4))
 ax.axis("off")
 card_text = (
-    f"Korelasi Spearman — Keseluruhan\n\n"
+    f"Korelasi Spearman Keseluruhan\n\n"
     f"n pasangan observasi  :  {n_pairs}\n"
     f"Koefisien rho (ρ)    :  {rho_all:.4f}\n"
     f"p-value               :  {p_all:.6f}\n"
@@ -266,7 +265,7 @@ print(f"   → Saved: {OUT_DIR}/combined_3_spearman_per_wilayah.png\n")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. 2×2 RESILIENCE CLASSIFICATION
+# 4. 2x2 RESILIENCE CLASSIFICATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Recompute CV per wilayah ──────────────────────────────────────────────────
@@ -294,7 +293,7 @@ resilience = spearman_per_w.merge(
     cv_table[["wilayah", "CV (%)", "Stabilitas"]], on="wilayah", how="left"
 )
 
-# ── 2×2 Classification ───────────────────────────────────────────────────────
+# ── 2x2 Classification ───────────────────────────────────────────────────────
 def classify(row: pd.Series) -> str:
     stabil  = row["Stabilitas"] == "Stabil"
     positif = float(row["Spearman_rho"]) > SPEARMAN_THRESHOLD
@@ -311,7 +310,7 @@ resilience = resilience.sort_values(
     ["Klasifikasi Ketahanan", "CV (%)"]
 ).reset_index(drop=True)
 
-print("── 4. 2×2 Resilience Classification Table ──")
+print("── 4. 2x2 Resilience Classification Table ──")
 print(f"   CV median threshold : {median_cv:.2f}%")
 print(f"   Spearman threshold  : rho > {SPEARMAN_THRESHOLD} = Responsif")
 print()
@@ -330,7 +329,7 @@ print()
 resilience.to_csv(f"{OUT_DIR}/combined_4_resilience_table.csv", index=False)
 print(f"   → Saved: {OUT_DIR}/combined_4_resilience_table.csv")
 
-# ── 2×2 Matrix Visual ────────────────────────────────────────────────────────
+# ── 2x2 Matrix Visual ────────────────────────────────────────────────────────
 fig, ax = plt.subplots(figsize=(12, 9))
 ax.set_xlim(0, 2)
 ax.set_ylim(0, 2)
@@ -390,7 +389,7 @@ ax.text(-0.12, 1.0, "← Korelasi Spearman (ρ) →",
         ha="center", va="center", fontsize=10, color="#636e72", rotation=90)
 
 ax.set_title(
-    "Matriks Klasifikasi Ketahanan Pangan 2×2\n"
+    "Matriks Klasifikasi Ketahanan Pangan 2x2\n"
     "Berdasarkan Stabilitas Produktivitas (CV) × "
     "Sensitivitas Terhadap Curah Hujan (Spearman ρ)",
     fontsize=13, fontweight="bold", pad=16,
