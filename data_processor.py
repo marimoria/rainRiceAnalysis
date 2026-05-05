@@ -50,7 +50,7 @@ BASE_DIR        = Path(__file__).resolve().parent
 DATA_DIR        = BASE_DIR / "__data__"
 DEFAULT_CH      = DATA_DIR / "curah_hujan_dataset.xlsx"
 DEFAULT_PADI    = DATA_DIR / "padi_dataset.xlsx"
-DEFAULT_OUT_DIR = DATA_DIR / "out"
+DEFAULT_OUT_DIR = DATA_DIR
 DEFAULT_STEM    = "ch_padi_training_dataset"
 
 
