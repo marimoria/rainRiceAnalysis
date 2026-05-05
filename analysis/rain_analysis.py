@@ -187,9 +187,9 @@ for xi, yi in zip(x, mm_arr):
     ax.annotate(f"{yi:.0f}", xy=(xi, yi), xytext=(0, 10),
                 textcoords="offset points", ha="center", fontsize=8.5, color="#2d3436")
 
-ax.axvspan(5.5, 9.5,  alpha=0.07, color="#e17055", label="Musim Kemarau (est. Jun–Sep)")
-ax.axvspan(9.5, 12.5, alpha=0.05, color=ACCENT)
-ax.axvspan(0.5, 3.5,  alpha=0.05, color=ACCENT, label="Musim Hujan (est.)")
+ax.axvspan(4.5, 10.5, alpha=0.07, color="#e17055", label="Musim Kemarau (est. Mei–Okt)")
+ax.axvspan(10.5, 12.5, alpha=0.05, color=ACCENT)
+ax.axvspan(0.5, 4.5,  alpha=0.05, color=ACCENT, label="Musim Hujan (est. Nov–Apr)")
 
 ax.set_xticks(x)
 ax.set_xticklabels(MONTH_LABELS, fontsize=10)
