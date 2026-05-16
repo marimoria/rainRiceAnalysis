@@ -1,7 +1,7 @@
 """
 combined_analysis.py
 ======================
-COMBINED — Rain and Padi Relationship Analysis
+COMBINED - Rain and Padi Relationship Analysis
 """
 
 import os
@@ -98,8 +98,8 @@ ch_pair   = df_pair[COL_CH].to_numpy(dtype=float)
 padi_pair = df_pair[COL_PADI].to_numpy(dtype=float)
 
 rho_result = stats.spearmanr(ch_pair, padi_pair)
-rho_all    = float(rho_result.statistic)
-p_all      = float(rho_result.pvalue)
+rho_all    = float(rho_result.statistic) # type: ignore[attr-defined]
+p_all      = float(rho_result.pvalue)    # type: ignore[attr-defined]
 
 abs_rho = abs(rho_all)
 if abs_rho >= 0.80:
@@ -162,8 +162,8 @@ for wilayah, grp in df_pair.groupby("wilayah"):
     x_w = grp_clean[COL_CH].to_numpy(dtype=float)
     y_w = grp_clean[COL_PADI].to_numpy(dtype=float)
     res_w  = stats.spearmanr(x_w, y_w)
-    rho_w  = float(res_w.statistic)
-    p_w    = float(res_w.pvalue)
+    rho_w  = float(res_w.statistic) # type: ignore[attr-defined]
+    p_w    = float(res_w.pvalue)    # type: ignore[attr-defined]
     results_per_w.append({
         "wilayah"     : wilayah,
         "n_bulan"     : len(grp_clean),
