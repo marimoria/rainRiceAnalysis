@@ -1,17 +1,14 @@
 """
-03_combined_analysis.py
-=======================
-COMBINED — Rain × Padi Relationship Analysis
----------------------------------------------
+combined_analysis.py
+======================
+COMBINED — Rain and Padi Relationship Analysis
 PRIMARY outputs (for journal):
   1.  LOWESS scatter plot                  → combined_1_lowess_scatter.png
   2.  Spearman correlation overall         → combined_2_spearman_overall.csv / .png
   3.  Spearman correlation per wilayah     → combined_3_spearman_per_wilayah.csv / .png
-  4.  2x2 Resilience classification table → combined_4_resilience_table.csv / .png
-                                            combined_4_resilience_matrix.png
-                                            combined_4_resilience_wilayah_table.png
-
-All outputs → __output__/combined/
+  4.  2x2 Resilience classification table  → combined_4_resilience_table.csv / .png
+                                             combined_4_resilience_matrix.png
+                                             combined_4_resilience_wilayah_table.png
 """
 
 import os
@@ -19,16 +16,21 @@ import warnings
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 from scipy import stats
 from statsmodels.nonparametric.smoothers_lowess import lowess
+from plot_style import apply_academic_style
+
+apply_academic_style()
 
 warnings.filterwarnings("ignore")
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
+# CONFIG
 DATA_PATH = "__data__/ch_padi_training_dataset.csv"
 OUT_DIR   = "__output__/combined"
+os.makedirs(OUT_DIR, exist_ok=True)
 
 COL_NAME  = "nama_wilayah"
 COL_JENIS = "jenis_wilayah"
@@ -36,33 +38,11 @@ COL_BULAN = "bulan"
 COL_CH    = "curah_hujan_per_bulan"
 COL_PADI  = "produktivitas"
 
-# rho > 0 → Positif/Responsif
 SPEARMAN_THRESHOLD: float = 0.0
-
-# Colors for resilience quadrants
-Q_COLORS = {
-    "Tangguh"          : "#00b894",   # low CV  + positive rho
-    "Rentan Produktif" : "#fdcb6e",   # high CV + positive rho
-    "Tangguh Mandiri"  : "#74b9ff",   # low CV  + negative/weak rho
-    "Rentan"           : "#d63031",   # high CV + negative/weak rho
-}
 
 ACCENT = "#6c5ce7"
 
-# ── STYLE ─────────────────────────────────────────────────────────────────────
-plt.rcParams.update({
-    "font.family"      : "DejaVu Sans",
-    "axes.spines.top"  : False,
-    "axes.spines.right": False,
-    "axes.grid"        : True,
-    "grid.alpha"       : 0.28,
-    "grid.linestyle"   : "--",
-    "figure.dpi"       : 150,
-})
-
-os.makedirs(OUT_DIR, exist_ok=True)
-
-# ── LOAD & PREPARE ────────────────────────────────────────────────────────────
+# LOAD & PREPARE
 df_raw = pd.read_csv(DATA_PATH)
 df_raw["wilayah"] = (
     df_raw[COL_NAME] + " "
@@ -71,10 +51,9 @@ df_raw["wilayah"] = (
 
 # Drop rows missing either variable
 df = df_raw.dropna(subset=[COL_CH, COL_PADI]).copy()
-# Keep all rows where both variables are present (including produktivitas = 0)
 df_pair = df.copy()
 
-# No outlier clipping — all valid observations are kept as-is
+# No outlier clipping
 df_clean = df_pair.copy()
 
 print("=" * 65)
@@ -85,41 +64,62 @@ print(f"  Unique wilayah                            : {df_pair['wilayah'].nuniqu
 print()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # 1. LOWESS SCATTER PLOT
-# ═══════════════════════════════════════════════════════════════════════════════
-# .to_numpy(dtype=float) → pure ndarray, eliminates ExtensionArray Pylance errors
 x_raw = df_clean[COL_CH].to_numpy(dtype=float)
 y_raw = df_clean[COL_PADI].to_numpy(dtype=float)
 
+# LOWESS Calculation
 lw = lowess(y_raw, x_raw, frac=0.35, it=3, return_sorted=True)
 
-print("── 1. LOWESS Scatter Plot ──")
+max_idx = np.argmax(lw[:, 1])
+peak_x = lw[max_idx, 0]
+peak_y = lw[max_idx, 1]
+
+q25 = np.percentile(x_raw, 25)
+q75 = np.percentile(x_raw, 75)
+
+print("--- 1. LOWESS Scatter Plot ---")
 print(f"   LOWESS frac = 0.35  |  n = {len(x_raw)} observations (all valid data)")
 print()
 
 fig, ax = plt.subplots(figsize=(10, 6))
+
+ax.axvspan(q25, q75, color='gray', alpha=0.15, label='Mayoritas Data (Q1-Q3)')
+
 ax.scatter(x_raw, y_raw,
            alpha=0.28, s=20, color=ACCENT,
            edgecolors="none", label="Observasi")
 ax.plot(lw[:, 0], lw[:, 1],
         color="#d63031", linewidth=2.8, label="LOWESS (frac=0.35)", zorder=5)
+
+ax.scatter([peak_x], [peak_y], color='black', s=60, zorder=6, label=f'Puncak Tren ({peak_x:.0f} mm, {peak_y:.2f} ton/ha)')
+ax.vlines(x=peak_x, ymin=-1, ymax=peak_y, color='black', linestyle='--', alpha=0.6, linewidth=1.5, zorder=4)
+ax.hlines(y=peak_y, xmin=-100, xmax=peak_x, color='black', linestyle='--', alpha=0.6, linewidth=1.5, zorder=4)
+
+ax.set_xscale('symlog', linthresh=10)
+ax.set_xticks([0, 10, 100, 1000])
+ax.set_xticklabels(['0', '10', '100', '1000'])
+
+# Set limits to fit the entire dataset on log scale
+ax.set_xlim(left=-1, right=np.max(x_raw) * 1.5)
+ax.set_ylim(bottom=-0.5, top=np.max(y_raw) * 1.05)
+
 ax.set_title(
-    "Hubungan Curah Hujan dan Produktivitas Padi\n(LOWESS Regression Line)",
+    "Scatterplot LOWESS Curah Hujan per Bulan terhadap Produktivitas Padi di Jawa Timur pada Tahun 2024",
     fontsize=13, fontweight="bold", pad=12,
 )
 ax.set_xlabel("Curah Hujan (mm/bulan)", fontsize=11)
 ax.set_ylabel("Produktivitas Padi (ton/ha)", fontsize=11)
-ax.legend(fontsize=9)
+
+ax.legend(fontsize=9, loc='lower left', frameon=True, edgecolor='black', fancybox=False)
+
 plt.tight_layout()
-plt.savefig(f"{OUT_DIR}/combined_1_lowess_scatter.png", bbox_inches="tight")
+plt.savefig(f"{OUT_DIR}/combined_1_lowess_scatter.png", bbox_inches="tight", dpi=300)
 plt.close()
 print(f"   → Saved: {OUT_DIR}/combined_1_lowess_scatter.png\n")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 2. SPEARMAN CORRELATION — OVERALL
-# ═══════════════════════════════════════════════════════════════════════════════
+# 2. SPEARMAN CORRELATION OVERALL
 ch_pair   = df_pair[COL_CH].to_numpy(dtype=float)
 padi_pair = df_pair[COL_PADI].to_numpy(dtype=float)
 
@@ -144,7 +144,7 @@ direction = "Positif" if rho_all > 0 else "Negatif"
 sig_label = "Signifikan (p<0.05)" if p_all < 0.05 else "Tidak Signifikan"
 n_pairs   = len(df_pair)   # all valid rows, no clipping
 
-print("── 2. Spearman Correlation — Overall ──")
+print("--- 2. Spearman Correlation — Overall ---")
 print(f"   n pairs      : {n_pairs}")
 print(f"   Spearman rho : {rho_all:.4f}")
 print(f"   p-value      : {p_all:.6f}")
@@ -170,7 +170,7 @@ ax.axis("off")
 card_text = (
     f"Korelasi Spearman Keseluruhan\n\n"
     f"n pasangan observasi  :  {n_pairs}\n"
-    f"Koefisien rho (ρ)    :  {rho_all:.4f}\n"
+    f"Koefisien rho    :  {rho_all:.4f}\n"
     f"p-value               :  {p_all:.6f}\n"
     f"Signifikansi          :  {sig_label}\n"
     f"Arah                  :  {direction}\n"
@@ -188,9 +188,7 @@ plt.close()
 print(f"   → Saved: {OUT_DIR}/combined_2_spearman_overall.png\n")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # 3. SPEARMAN CORRELATION PER WILAYAH
-# ═══════════════════════════════════════════════════════════════════════════════
 results_per_w: list[dict] = []
 for wilayah, grp in df_pair.groupby("wilayah"):
     grp_clean = grp[[COL_CH, COL_PADI]].dropna()
@@ -216,7 +214,7 @@ spearman_per_w = (
     .reset_index(drop=True)
 )
 
-print("── 3. Spearman Correlation per Wilayah ──")
+print("--- 3. Spearman Correlation per Wilayah ---")
 print(spearman_per_w.to_string(index=False))
 print()
 
@@ -243,7 +241,7 @@ ax.axvline(rho_all, color="#6c5ce7", linewidth=1.5,
 for bar, rho_v, sig in zip(bars, rho_vals, spearman_per_w["Signifikan"]):
     offset = 0.012 if rho_v >= 0 else -0.012
     ha     = "left"  if rho_v >= 0 else "right"
-    marker = "★"     if sig == "Ya" else ""
+    marker = "*"     if sig == "Ya" else ""
     ax.text(rho_v + offset,
             bar.get_y() + bar.get_height() / 2,
             f"{rho_v:.3f}{marker}", va="center", fontsize=7.5, ha=ha)
@@ -253,7 +251,7 @@ legend_patches = [
     mpatches.Patch(color="#d63031", label="Negatif (CH ↑ → Produktivitas ↓)"),
 ]
 ax.legend(handles=legend_patches + [ax.lines[1]], fontsize=8.5, loc="lower right")
-ax.set_title("Korelasi Spearman per Wilayah\n(★ = signifikan p<0.05)",
+ax.set_title("Korelasi Spearman per Wilayah (* = signifikan p<0.05)",
              fontsize=13, fontweight="bold", pad=12)
 ax.set_xlabel("Spearman ρ", fontsize=11)
 ax.set_xlim(-1.1, 1.1)
@@ -264,16 +262,14 @@ plt.close()
 print(f"   → Saved: {OUT_DIR}/combined_3_spearman_per_wilayah.png\n")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # 4. 2x2 RESILIENCE CLASSIFICATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── Recompute CV per wilayah ──────────────────────────────────────────────────
+# Recompute CV and Resilience Indicator per wilayah
 df_nz = df_raw[df_raw[COL_PADI] > 0].dropna(subset=[COL_PADI]).copy()
 df_nz["wilayah"] = (
     df_nz[COL_NAME] + " "
     + df_nz[COL_JENIS].map({0: "Kab.", 1: "Kota"})
 )
+
 cv_table = (
     df_nz.groupby("wilayah")[COL_PADI]
     .agg(
@@ -282,40 +278,56 @@ cv_table = (
     )
     .reset_index()
 )
-cv_table["CV (%)"]    = cv_table["std_p"] / cv_table["mean_p"] * 100
-median_cv              = float(cv_table["CV (%)"].median())
-cv_table["Stabilitas"] = cv_table["CV (%)"].apply(
-    lambda x: "Stabil" if x <= median_cv else "Tidak Stabil"
+
+cv_table["CV_ratio"] = cv_table["std_p"] / cv_table["mean_p"]
+cv_table["CV (%)"]   = cv_table["CV_ratio"] * 100
+
+# Calculate the formal Resilience Indicator (1 / CV^2)
+cv_table["Resilience_Index"] = 1 / (cv_table["CV_ratio"] ** 2)
+
+# Determine the median threshold based on the Resilience Index
+median_resilience = float(cv_table["Resilience_Index"].median())
+median_cv_pct = float(cv_table["CV (%)"].median())
+
+# A region is "Stabil" if its Resilience Index is >= the median or CV <= median CV
+cv_table["Stabilitas"] = cv_table["Resilience_Index"].apply(
+    lambda x: "Stabil" if x >= median_resilience else "Tidak Stabil"
 )
 
-# ── Merge CV + Spearman ───────────────────────────────────────────────────────
 resilience = spearman_per_w.merge(
-    cv_table[["wilayah", "CV (%)", "Stabilitas"]], on="wilayah", how="left"
+    cv_table[["wilayah", "CV (%)", "Resilience_Index", "Stabilitas"]], 
+    on="wilayah", 
+    how="left"
 )
 
-# ── 2x2 Classification ───────────────────────────────────────────────────────
+# 2x2 Classification
 def classify(row: pd.Series) -> str:
-    stabil  = row["Stabilitas"] == "Stabil"
-    positif = float(row["Spearman_rho"]) > SPEARMAN_THRESHOLD
-    if stabil and positif:
+    stabil = row["Stabilitas"] == "Stabil"
+    
+    rho_positif = float(row["Spearman_rho"]) > 0.0
+    is_significant = float(row["p_value"]) < 0.05
+    responsif = rho_positif and is_significant
+    
+    if stabil and responsif:
         return "Tangguh"
-    if (not stabil) and positif:
+    if (not stabil) and responsif:
         return "Rentan Produktif"
-    if stabil and (not positif):
+    if stabil and (not responsif):
         return "Tangguh Mandiri"
     return "Rentan"
 
 resilience["Klasifikasi Ketahanan"] = resilience.apply(classify, axis=1)
 resilience = resilience.sort_values(
-    ["Klasifikasi Ketahanan", "CV (%)"]
+    ["Klasifikasi Ketahanan", "Resilience_Index"], ascending=[True, False]
 ).reset_index(drop=True)
 
-print("── 4. 2x2 Resilience Classification Table ──")
-print(f"   CV median threshold : {median_cv:.2f}%")
-print(f"   Spearman threshold  : rho > {SPEARMAN_THRESHOLD} = Responsif")
+print("--- 4. 2x2 Resilience Classification Table ---")
+print(f"   CV Median Threshold         : {median_cv_pct:.2f}%")
+print(f"   Resilience Index Threshold  : {median_resilience:.2f}")
+print(f"   Responsiveness Rule         : Spearman rho > 0.0 AND p_value < 0.05")
 print()
 print(resilience[[
-    "wilayah", "CV (%)", "Stabilitas", "Spearman_rho", "Arah",
+    "wilayah", "CV (%)", "Resilience_Index", "Stabilitas", "Spearman_rho", "p_value",
     "Klasifikasi Ketahanan",
 ]].to_string(index=False))
 print()
@@ -329,134 +341,145 @@ print()
 resilience.to_csv(f"{OUT_DIR}/combined_4_resilience_table.csv", index=False)
 print(f"   → Saved: {OUT_DIR}/combined_4_resilience_table.csv")
 
-# ── 2x2 Matrix Visual ────────────────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(12, 9))
-ax.set_xlim(0, 2)
-ax.set_ylim(0, 2)
-ax.axis("off")
+# 2x2 Matrix Visual
+import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
 
-quadrant_defs = [
-    (0.5, 1.5, "TANGGUH MANDIRI",
-     "Stabil + Korelasi Negatif\n(Produktivitas stabil,\ntidak bergantung CH)",
-     "#74b9ff"),
-    (1.5, 1.5, "TANGGUH",
-     "Stabil + Korelasi Positif\n(Produktivitas stabil,\nresponsif terhadap CH)",
-     "#00b894"),
-    (0.5, 0.5, "RENTAN",
-     "Tidak Stabil + Korelasi Negatif\n(Produktivitas fluktuatif,\ntidak responsif CH)",
-     "#d63031"),
-    (1.5, 0.5, "RENTAN PRODUKTIF",
-     "Tidak Stabil + Korelasi Positif\n(Produktivitas fluktuatif,\nresponsif terhadap CH)",
-     "#fdcb6e"),
-]
+# Gather wilayah per quadrant
+q_tangguh     = resilience.loc[resilience["Klasifikasi Ketahanan"] == "Tangguh",          "wilayah"].tolist()
+q_rentan_prod = resilience.loc[resilience["Klasifikasi Ketahanan"] == "Rentan Produktif", "wilayah"].tolist()
+q_tangguh_m   = resilience.loc[resilience["Klasifikasi Ketahanan"] == "Tangguh Mandiri",  "wilayah"].tolist()
+q_rentan      = resilience.loc[resilience["Klasifikasi Ketahanan"] == "Rentan",           "wilayah"].tolist()
 
-for xc, yc, lbl, desc, color in quadrant_defs:
-    rect = mpatches.FancyBboxPatch(
-        (xc - 0.47, yc - 0.47), 0.94, 0.94,
-        boxstyle="round,pad=0.03",
-        facecolor=color, edgecolor="white", linewidth=2.5, alpha=0.85,
-    )
-    ax.add_patch(rect)
-    txt_color = "white" if color in ("#d63031", "#00b894") else "#2d3436"
-    ax.text(xc, yc + 0.18, lbl, ha="center", va="center",
-            fontsize=11, fontweight="bold", color=txt_color)
-    ax.text(xc, yc - 0.05, desc, ha="center", va="center",
-            fontsize=8.5, color=txt_color)
+max_rows = max(len(q_tangguh), len(q_rentan_prod), len(q_tangguh_m), len(q_rentan))
+fig_h = max(11, 3.0 + max_rows * 0.38)
 
-    wil_in_q = resilience.loc[
-        resilience["Klasifikasi Ketahanan"].str.upper() == lbl.upper(), "wilayah"
-    ].tolist()
-    wil_text = "\n".join(wil_in_q) if wil_in_q else "(tidak ada)"
-    list_color = "white" if color in ("#d63031", "#00b894") else "#555"
-    ax.text(xc, yc - 0.33, wil_text, ha="center", va="center",
-            fontsize=6.5, color=list_color, style="italic")
+fig = plt.figure(figsize=(12, fig_h))
 
-ax.text(0.5, -0.04, "CV Rendah\n(Stabil)", ha="center", va="top",
-        fontsize=11, fontweight="bold", color="#2d3436")
-ax.text(1.5, -0.04, "CV Tinggi\n(Tidak Stabil)", ha="center", va="top",
-        fontsize=11, fontweight="bold", color="#2d3436")
-ax.text(-0.04, 1.5, "Korelasi\nPositif\n(Responsif)", ha="right", va="center",
-        fontsize=11, fontweight="bold", color="#2d3436", rotation=90)
-ax.text(-0.04, 0.5, "Korelasi\nNegatif/Nol\n(Tidak Responsif)", ha="right", va="center",
-        fontsize=11, fontweight="bold", color="#2d3436", rotation=90)
+# layout constants 
+LEFT   = 0.30 
+RIGHT  = 0.97
+BOTTOM = 0.04
+TOP    = 0.82
 
-ax.plot([1, 1], [0, 2], color="#b2bec3", linewidth=2)
-ax.plot([0, 2], [1, 1], color="#b2bec3", linewidth=2)
+MID_X = (LEFT + RIGHT) / 2
+MID_Y = (BOTTOM + TOP)  / 2
 
-ax.text(1.0, -0.10, "← Koefisien Variasi (CV) →",
-        ha="center", va="top", fontsize=10, color="#636e72")
-ax.text(-0.12, 1.0, "← Korelasi Spearman (ρ) →",
-        ha="center", va="center", fontsize=10, color="#636e72", rotation=90)
-
-ax.set_title(
-    "Matriks Klasifikasi Ketahanan Pangan 2x2\n"
-    "Berdasarkan Stabilitas Produktivitas (CV) × "
-    "Sensitivitas Terhadap Curah Hujan (Spearman ρ)",
-    fontsize=13, fontweight="bold", pad=16,
+# outer border 
+outer = mpatches.Rectangle(
+    (LEFT, BOTTOM), RIGHT - LEFT, TOP - BOTTOM,
+    transform=fig.transFigure, figure=fig,
+    facecolor="none", edgecolor="black", linewidth=1.2, clip_on=False,
 )
-plt.tight_layout()
-plt.savefig(f"{OUT_DIR}/combined_4_resilience_matrix.png",
-            bbox_inches="tight", facecolor="white")
+fig.add_artist(outer)
+
+# inner dividers
+fig.add_artist(Line2D([MID_X, MID_X], [BOTTOM, TOP],
+    transform=fig.transFigure, figure=fig, color="black", linewidth=1.2))
+fig.add_artist(Line2D([LEFT, RIGHT], [MID_Y, MID_Y],
+    transform=fig.transFigure, figure=fig, color="black", linewidth=1.2))
+
+def _cell_text(fig, x, y, items, fontsize=11):
+    text = "\n".join(items) if items else "(tidak ada)"
+    fig.text(x, y, text, ha="center", va="center", fontsize=fontsize,
+             transform=fig.transFigure, linespacing=1.6)
+
+cx_left  = (LEFT  + MID_X) / 2
+cx_right = (MID_X + RIGHT) / 2
+cy_top   = (MID_Y + TOP)   / 2
+cy_bot   = (BOTTOM + MID_Y) / 2
+
+_cell_text(fig, cx_left,  cy_top, q_tangguh)
+_cell_text(fig, cx_right, cy_top, q_rentan_prod)
+_cell_text(fig, cx_left,  cy_bot, q_tangguh_m)
+_cell_text(fig, cx_right, cy_bot, q_rentan)
+
+# column headers 
+col_hdr_y = TOP + 0.025
+fig.text(cx_left,  col_hdr_y, f"CV \u2264 {median_cv_pct:.2f}%\n(Stabil)",
+         ha="center", va="bottom", fontsize=11)
+fig.text(cx_right, col_hdr_y, f"CV > {median_cv_pct:.2f}%\n(Tidak Stabil)",
+         ha="center", va="bottom", fontsize=11)
+
+# main title
+fig.text(MID_X, TOP + 0.13, "Koefisien Variasi (CV)",
+         ha="center", va="bottom", fontsize=14, fontweight="bold")
+
+# row labels
+row_label_x = LEFT - 0.02 
+fig.text(row_label_x, cy_top,
+         "\u03c1 > 0,\np < 0,05",
+         ha="right", va="center", fontsize=11)
+fig.text(row_label_x, cy_bot,
+         "\u03c1 \u2264 0 atau\np \u2265 0,05",
+         ha="right", va="center", fontsize=11)
+
+# rotated y-axis title
+fig.text(0.04, MID_Y, "Korelasi Spearman (\u03c1)",
+         ha="center", va="center", fontsize=13, fontweight="bold", rotation=90)
+
+plt.savefig(f"{OUT_DIR}/combined_4_resilience_matrix.png")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/combined_4_resilience_matrix.png")
 
-# ── Wilayah list per class (table visual) ─────────────────────────────────────
-class_order = ["Tangguh", "Tangguh Mandiri", "Rentan Produktif", "Rentan"]
-class_colors_hex = {
-    "Tangguh"          : "#00b894",
-    "Tangguh Mandiri"  : "#74b9ff",
-    "Rentan Produktif" : "#fdcb6e",
-    "Rentan"           : "#d63031",
-}
+# Wilayah classification table
+table_rows = []
+for cls in ["Tangguh", "Tangguh Mandiri", "Rentan Produktif", "Rentan"]:
+    subset = resilience[resilience["Klasifikasi Ketahanan"] == cls].copy()
+    subset = subset.sort_values("Resilience_Index", ascending=False)
+    for _, row in subset.iterrows():
+        table_rows.append([
+            row["wilayah"],
+            cls,
+            f"{float(row['CV (%)']):.2f}%",
+            f"{float(row['Spearman_rho']):.4f}",
+            f"{float(row['p_value']):.4f}",
+        ])
 
-fig, axes = plt.subplots(1, 4, figsize=(16, 9))
-for ax_i, cls in zip(axes, class_order):
-    wil_cls = resilience[resilience["Klasifikasi Ketahanan"] == cls].copy()
-    cell_data = [
-        [w, f"{cv:.1f}", f"{rh:.3f}"]
-        for w, cv, rh in zip(
-            wil_cls["wilayah"].tolist(),
-            wil_cls["CV (%)"].to_numpy(dtype=float),
-            wil_cls["Spearman_rho"].to_numpy(dtype=float),
-        )
-    ]
-    ax_i.axis("off")
-    hdr_color = "white" if cls in ("Tangguh", "Rentan") else "#2d3436"
-    ax_i.text(0.5, 1.01, cls,
-              transform=ax_i.transAxes, ha="center", va="bottom",
-              fontsize=11, fontweight="bold", color=hdr_color,
-              bbox=dict(facecolor=class_colors_hex[cls], edgecolor="none",
-                        boxstyle="round,pad=0.4"))
-    ax_i.text(0.5, 0.97, f"n = {len(wil_cls)} wilayah",
-              transform=ax_i.transAxes, ha="center", va="top",
-              fontsize=9, color="#636e72")
+col_labels  = ["Wilayah", "Klasifikasi Ketahanan", "CV (%)", "Spearman ρ", "p-value"]
+n_rows      = len(table_rows)
+row_h       = 0.38
+header_h    = 0.55
+fig_height  = header_h + n_rows * row_h + 1.0   # +1 for title
 
-    if cell_data:
-        tbl = ax_i.table(
-            cellText=cell_data,
-            colLabels=["Wilayah", "CV (%)", "ρ"],
-            cellLoc="center", loc="center",
-            bbox=[0, 0, 1, 0.92],
-        )
-        tbl.auto_set_font_size(False)
-        tbl.set_fontsize(8.5)
-        cell_hdr_color = class_colors_hex[cls]
-        for (r, c), cell in tbl.get_celld().items():
-            if r == 0:
-                cell.set_facecolor(cell_hdr_color)
-                cell.set_text_props(color=hdr_color, fontweight="bold")
-            else:
-                cell.set_facecolor("#f8f9fa" if r % 2 == 0 else "white")
-            cell.set_edgecolor("#dfe6e9")
+fig, ax = plt.subplots(figsize=(11, fig_height))
+ax.axis("off")
 
-fig.suptitle(
-    "Klasifikasi Ketahanan Pangan per Wilayah — Jawa Timur\n"
-    "(CV = stabilitas produksi  |  ρ = Spearman per wilayah)",
-    fontsize=13, fontweight="bold", y=1.01,
+col_x     = [0.0, 0.28, 0.54, 0.68, 0.82]
+col_w     = [0.28, 0.26, 0.14, 0.14, 0.18]
+col_align = ["left", "left", "center", "center", "center"]
+
+y_top  = 0.97
+y_curr = y_top
+cell_h = (1.0 - 0.06) / (n_rows + 1)
+
+ax.axhline(y_top, color="black", linewidth=1.2, xmin=0, xmax=1)
+ax.axhline(y_top - cell_h, color="black", linewidth=1.2, xmin=0, xmax=1)
+
+for i, (lbl, xp, align) in enumerate(zip(col_labels, col_x, col_align)):
+    ha = align
+    x_pos = xp + (col_w[i] / 2 if ha == "center" else 0.01)
+    ax.text(x_pos, y_top - cell_h / 2, lbl,
+            ha=ha, va="center", fontsize=10, fontweight="bold", transform=ax.transAxes)
+
+for r_idx, row_data in enumerate(table_rows):
+    y_row = y_top - cell_h * (r_idx + 1)
+    y_mid = y_row - cell_h / 2
+    for i, (val, xp, align) in enumerate(zip(row_data, col_x, col_align)):
+        ha = align
+        x_pos = xp + (col_w[i] / 2 if ha == "center" else 0.01)
+        ax.text(x_pos, y_mid, val,
+                ha=ha, va="center", fontsize=9.5, transform=ax.transAxes)
+
+y_bottom = y_top - cell_h * (n_rows + 1)
+ax.axhline(y_bottom, color="black", linewidth=1.2, xmin=0, xmax=1)
+
+ax.set_title(
+    "Klasifikasi Ketahanan Pangan per Wilayah — Jawa Timur",
+    fontsize=13, fontweight="bold", pad=10,
 )
-plt.tight_layout()
-plt.savefig(f"{OUT_DIR}/combined_4_resilience_wilayah_table.png",
-            bbox_inches="tight", facecolor="white")
+
+plt.savefig(f"{OUT_DIR}/combined_4_resilience_wilayah_table.png")
 plt.close()
 print(f"   → Saved: {OUT_DIR}/combined_4_resilience_wilayah_table.png")
 
