@@ -485,6 +485,6 @@ print(f"   → Saved: {OUT_DIR}/combined_4_resilience_wilayah_table.png")
 
 print()
 print("=" * 65)
-print("  03_combined_analysis.py  — COMPLETE")
+print("  combined_analysis.py  — COMPLETE")
 print(f"  All outputs in: {OUT_DIR}/")
 print("=" * 65)
