@@ -1,18 +1,18 @@
 """
 hf_manager.py
-─────────────
+--------------
 Manages HuggingFace dataset uploads, downloads, and deletions.
 
 Usage
-─────
+------
   python hf_manager.py                      # Interactive menu
   python hf_manager.py upload <files…>      # CLI: upload specific files
   python hf_manager.py download <files…>    # CLI: download specific files
   python hf_manager.py delete <filenames…>  # CLI: delete files from repo
 
 Environment
-───────────
-  HF_TOKEN   — HuggingFace access token (read from .env or shell env)
+------------
+  HF_TOKEN - HuggingFace access token (read from .env or shell env)
 """
 
 import argparse
@@ -26,8 +26,6 @@ from huggingface_hub.errors import RepositoryNotFoundError
 
 load_dotenv()
 
-# ─── config ───────────────────────────────────────────────────────────────────
-
 HF_TOKEN     = os.getenv("HF_TOKEN")
 HF_REPO_ID   = "mariaamandadevina/jatim-curah-hujan-padi-2024"
 HF_REPO_TYPE = "dataset"
@@ -35,7 +33,7 @@ HF_REPO_TYPE = "dataset"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "__data__"
 
-# ─── helpers ──────────────────────────────────────────────────────────────────
+# helpers
 
 def _sep(title: str = "", width: int = 56):
     if title:
@@ -53,7 +51,7 @@ def _ensure_repo(api: HfApi):
     try:
         api.repo_info(repo_id=HF_REPO_ID, repo_type=HF_REPO_TYPE, token=HF_TOKEN)
     except RepositoryNotFoundError:
-        print(f"  ℹ  Repo not found — creating {HF_REPO_ID} …")
+        print(f"  !  Repo not found — creating {HF_REPO_ID} …")
         create_repo(repo_id=HF_REPO_ID, repo_type=HF_REPO_TYPE, private=False, token=HF_TOKEN)
         print(f"  ✓  Created: https://huggingface.co/datasets/{HF_REPO_ID}")
 
@@ -66,7 +64,7 @@ def _repo_filenames(api: HfApi) -> list[str]:
     except RepositoryNotFoundError:
         return []
 
-# ─── actions ──────────────────────────────────────────────────────────────────
+# actions
 
 def cmd_upload(files: list[Path]):
     _require_token()
@@ -137,7 +135,7 @@ def cmd_delete(filenames: list[str]):
         except Exception as exc:
             print(f" ✗  {exc}")
 
-# ─── interactive menu ─────────────────────────────────────────────────────────
+# interactive menu
 
 def _pick_files_from_dir() -> list[Path]:
     if not DATA_DIR.exists():
@@ -217,7 +215,7 @@ def interactive_menu():
     else:
         print("  ✗  Invalid option.")
 
-# ─── CLI ──────────────────────────────────────────────────────────────────────
+# CLI
 
 def parse_args():
     p = argparse.ArgumentParser(

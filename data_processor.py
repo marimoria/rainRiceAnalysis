@@ -1,11 +1,11 @@
 """
 data_processor.py
-─────────────────
+-------------------
 Combines Curah Hujan (rainfall) and Padi (rice) CSV files
 into a single combined CSV dataset.
 
 Usage
-─────
+-------------------
   python data_processor.py                          # uses __data__/ defaults
   python data_processor.py --ch my_ch.csv --padi my_padi.csv --out combined.csv
 """
@@ -14,8 +14,6 @@ import argparse
 import sys
 from pathlib import Path
 import pandas as pd
-
-# ─── config ───────────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "__data__"
@@ -59,7 +57,7 @@ def main():
     print(f"  Reading: {padi_file.name}")
     padi_df = pd.read_csv(padi_file)
 
-    # Merge the two datasets on the common geographic and time columns
+    # Merge the two datasets on the common columns
     merged = pd.merge(
         ch_df, 
         padi_df, 
