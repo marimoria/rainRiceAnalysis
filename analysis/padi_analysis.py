@@ -179,7 +179,15 @@ ax.set_title(
 )
 ax.set_xlabel("Bulan", fontsize=11)
 ax.set_ylabel("Produktivitas (ton/ha)", fontsize=11)
+
+ax.axvspan(4.5, 10.5, alpha=0.07, color="#e17055",
+           label="Musim Kemarau (Mei hingga Oktober)")
+ax.axvspan(10.5, 12.5, alpha=0.05, color=ACCENT)
+ax.axvspan(0.5,  4.5,  alpha=0.05, color=ACCENT,
+           label="Musim Hujan (November hingga April)")
+
 ax.legend(fontsize=9, loc="lower right")
+
 plt.tight_layout()
 plt.savefig(f"{OUT_DIR}/padi_3_monthly_median_lineplot.png", bbox_inches="tight")
 plt.close()
@@ -408,6 +416,12 @@ ax.set_title(
 )
 ax.set_xlabel("Bulan", fontsize=11)
 ax.set_ylabel("Produktivitas (ton/ha)", fontsize=11)
+
+ax.axvspan(4.5, 10.5, alpha=0.07, color="#e17055",
+           label="Musim Kemarau (Mei hingga Oktober)")
+ax.axvspan(10.5, 12.5, alpha=0.05, color=ACCENT)
+ax.axvspan(0.5,  4.5,  alpha=0.05, color=ACCENT,
+           label="Musim Hujan (November hingga April)")
 
 ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', ncol=2, fontsize=7)
 plt.subplots_adjust(right=0.75) 
