@@ -392,3 +392,93 @@ ax.set_title("Klasifikasi Ketahanan Pangan per Wilayah di Jawa Timur pada Tahun 
 
 plt.savefig(f"{OUT_DIR}/combined_4_resilience_wilayah_table.png")
 plt.close()
+
+
+# 5. DUAL-AXIS MONTHLY MEDIAN LINE PLOT
+MONTH_LABELS_5 = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+                   "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+COLOR_CH   = "#0009b8"
+COLOR_PADI = "#00b894"
+
+monthly_ch5 = (
+    df_raw.dropna(subset=[COL_CH])
+    .assign(wilayah=lambda d: d[COL_NAME] + " " + d[COL_JENIS].map({0: "Kab.", 1: "Kota"}))
+    .groupby([COL_BULAN, "wilayah"])[COL_CH]
+    .median()
+    .reset_index()
+    .rename(columns={COL_CH: "ch_median"})
+    .groupby(COL_BULAN)["ch_median"]
+    .agg(median="median", q1=lambda x: x.quantile(0.25), q3=lambda x: x.quantile(0.75))
+    .reindex(range(1, 13))
+)
+
+df_nz5 = df_raw[df_raw[COL_PADI] > 0].dropna(subset=[COL_PADI]).copy()
+monthly_padi5 = (
+    df_nz5.groupby(COL_BULAN)[COL_PADI]
+    .agg(median="median", q1=lambda x: x.quantile(0.25), q3=lambda x: x.quantile(0.75))
+    .reindex(range(1, 13))
+)
+
+x5    = list(range(1, 13))
+ch_md = monthly_ch5["median"].to_numpy(dtype=float)
+ch_q1 = monthly_ch5["q1"].to_numpy(dtype=float)
+ch_q3 = monthly_ch5["q3"].to_numpy(dtype=float)
+pd_md = monthly_padi5["median"].to_numpy(dtype=float)
+pd_q1 = monthly_padi5["q1"].to_numpy(dtype=float)
+pd_q3 = monthly_padi5["q3"].to_numpy(dtype=float)
+
+fig, ax1 = plt.subplots(figsize=(11, 5))
+
+ax1.axvspan(4.5,  10.5, alpha=0.15, color="#e17055")
+ax1.axvspan(10.5, 12.5, alpha=0.15, color="#0062b8")
+ax1.axvspan(0.5,   4.5, alpha=0.15, color="#0062b8")
+
+ax1.fill_between(x5, ch_q1, ch_q3, alpha=0.15, color=COLOR_CH, label="Rentang Interkuartil (Q1 hingga Q3)")
+ax1.plot(x5, ch_md, marker="s", color=COLOR_CH, linewidth=2.5, markersize=8, zorder=5,
+         label="Median Curah Hujan Bulanan")
+for xi, yi in zip(x5, ch_md):
+    ax1.annotate(f"{yi:.0f}", xy=(xi, yi), xytext=(0, 10),
+                 textcoords="offset points", ha="center", color="#2d3436")
+
+ax1.set_xlabel("Bulan")
+ax1.set_ylabel("Curah Hujan Median (mm/bulan)")
+ax1.tick_params(axis="y", labelcolor="black")
+ax1.set_xticks(x5)
+ax1.set_xticklabels(MONTH_LABELS_5)
+ax1.set_ylim(0, float(np.nanmax(ch_q3)) * 2.0)
+ax1.set_xlim(0.5, 12.5)
+
+ax2 = ax1.twinx()
+ax2.fill_between(x5, pd_q1, pd_q3, alpha=0.15, color=COLOR_PADI, label="Rentang Interkuartil (Q1 hingga Q3)")
+ax2.plot(x5, pd_md, marker="s", color=COLOR_PADI, linewidth=2.5, markersize=8, zorder=5,
+         label="Median Produktivitas Padi Bulanan")
+for xi, yi in zip(x5, pd_md):
+    ax2.annotate(f"{yi:.2f}", xy=(xi, yi), xytext=(0, 10),
+                 textcoords="offset points", ha="center", color="#2d3436")
+
+ax2.set_ylabel("Produktivitas Padi (ton/ha)")
+ax2.tick_params(axis="y", labelcolor="black")
+ax2.set_ylim(float(np.nanmin(pd_q1)) - 1.0, float(np.nanmax(pd_q3)) + 1.5)
+
+handles_ch = [
+    mpatches.Patch(color=COLOR_CH,   alpha=0.3, label="Rentang Interkuartil Curah Hujan"),
+    Line2D([0], [0], color=COLOR_CH,   marker="s", linewidth=2.5, markersize=7, label="Median Curah Hujan Bulanan"),
+]
+handles_padi = [
+    mpatches.Patch(color=COLOR_PADI, alpha=0.3, label="Rentang Interkuartil Produktivitas"),
+    Line2D([0], [0], color=COLOR_PADI, marker="s", linewidth=2.5, markersize=7, label="Median Produktivitas Padi Bulanan"),
+]
+handles_musim = [
+    mpatches.Patch(color="#e17055", alpha=0.3, label="Musim Kemarau (Mei hingga Oktober)"),
+    mpatches.Patch(color="#0062b8", alpha=0.3, label="Musim Hujan (November hingga April)"),
+]
+ax1.legend(handles=handles_ch + handles_padi + handles_musim, loc="upper right")
+
+ax1.set_title(
+    "Pola Curah Hujan dan Produktivitas Padi Median Bulanan di Jawa Timur pada Tahun 2024",
+    fontweight="bold"
+)
+
+plt.tight_layout()
+plt.savefig(f"{OUT_DIR}/combined_5_dual_axis_monthly_median.png")
+plt.close()
